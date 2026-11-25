@@ -273,23 +273,42 @@ async function searchAndDisplay(cityName) {
   }
 }
 
+/** Reverse-geocode coordinates → city name via Nominatim (OpenStreetMap) */
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
+      { headers: { 'User-Agent': 'SkyCastWeatherDashboard/1.0' } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    const addr = data.address || {};
+    // Pick the most specific locality available
+    const city = addr.city || addr.town || addr.village || addr.county || addr.state_district || addr.state || '';
+    const country = addr.country_code ? addr.country_code.toUpperCase() : '';
+    return { name: city, country_code: country };
+  } catch {
+    return null;
+  }
+}
+
 /** Fetch by coordinates (geolocation) */
 async function fetchByCoords(lat, lon) {
   showLoading();
   try {
-    // Reverse-geocode to get city name
-    const res = await fetch(`${GEO_API}?name=&count=1&language=en`);
-    // Open-Meteo doesn't have reverse geocoding, so we use the timezone city
-    const weather = await fetchWeather(lat, lon);
+    // Run reverse-geocoding and weather fetch in parallel
+    const [geoResult, weather] = await Promise.all([
+      reverseGeocode(lat, lon),
+      fetchWeather(lat, lon),
+    ]);
     currentWeather = weather;
 
-    // Extract city from timezone (e.g. "Asia/Kolkata" → "Kolkata")
-    const tzParts = (weather.timezone || '').split('/');
-    const cityFromTZ = tzParts[tzParts.length - 1].replace(/_/g, ' ');
+    const cityName = (geoResult && geoResult.name) ? geoResult.name : 'Your Location';
+    const countryCode = (geoResult && geoResult.country_code) ? geoResult.country_code : '';
 
     currentLocation = {
-      name: cityFromTZ || 'Your Location',
-      country_code: '',
+      name: cityName,
+      country_code: countryCode,
       latitude: lat,
       longitude: lon,
       admin1: '',
